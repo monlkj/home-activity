@@ -51,7 +51,7 @@ test("personal accounts, family invitations and separate approval passwords", as
       }),
       child = await call({
         action: "registerAccount",
-        username: "child1",
+        username: "child1@example.com",
         name: "민지",
         password: "login-child",
       }),
@@ -112,6 +112,14 @@ test("personal accounts, family invitations and separate approval passwords", as
         );
       },
     );
+    await t.test("email registration, login and case-insensitive duplicate handling", async () => {
+      const signup = await call({action: 'registerAccount', username: ' User@g.cnees.kr ', name: '이메일 사용자', password: 'email-password'});
+      assert.equal(signup.status, 201);
+      assert.equal(signup.result.account.username, 'user@g.cnees.kr');
+      assert.equal((await call({action:'loginAccount', username:'USER@G.CNEES.KR', password:'email-password'})).status, 200);
+      assert.equal((await call({action:'registerAccount', username:'user@g.cnees.kr', name:'중복', password:'password'})).status, 409);
+      assert.equal((await call({action:'registerAccount', username:'user@@example.com', name:'오류', password:'password'})).status, 400);
+    });
     await t.test(
       "approval password is separate and cannot be reset with login password",
       async () => {
@@ -186,7 +194,7 @@ test("personal accounts, family invitations and separate approval passwords", as
         assert.equal(room.result.isOwner, true);
         assert.equal((await call(null, childCookie, familyId)).status, 403);
         const search = await call(
-          { action: "searchAccounts", query: "child1" },
+          { action: "searchAccounts", query: " CHILD1@EXAMPLE.COM " },
           ownerCookie,
         );
         assert.equal(search.result.accounts[0].id, child.result.account.id);

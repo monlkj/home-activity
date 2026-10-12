@@ -1,3 +1,4 @@
+import { normalizeIdentity } from '../lib/identity.js';
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { database } from "../lib/database.js";
 import { defaultState } from "../lib/defaults.js";
@@ -44,14 +45,7 @@ async function startSession(sql, req, res, id) {
   await sql`INSERT INTO home_account_sessions (token_hash,account_id,expires_at) VALUES (${hash(token)},${id},now()+interval '7 days')`;
   res.setHeader("Set-Cookie", cookieHeader(req, token, 604800));
 }
-function username(value) {
-  const name = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  if (!/^[a-z0-9_]{4,30}$/.test(name))
-    fail("계정 ID는 영문·숫자·밑줄 4~30자로 입력해 주세요.");
-  return name;
-}
+const username = normalizeIdentity;
 async function approval(sql, account, password) {
   await rateLimit(sql, "approval:" + account.id, 10);
   if (!account.approval_password)
@@ -150,7 +144,7 @@ export function createHandler(getDatabase = database) {
           await sql`INSERT INTO home_accounts(id,username,name,password) VALUES (${id},${user},${name},${JSON.stringify(password)}::jsonb)`;
         } catch (error) {
           if (error.code === "23505")
-            fail("이미 사용 중인 계정 ID입니다.", 409);
+            fail("이미 사용 중인 이메일 또는 계정 ID입니다.", 409);
           throw error;
         }
         await startSession(sql, req, res, id);
@@ -166,7 +160,7 @@ export function createHandler(getDatabase = database) {
           !account ||
           !(await verifyPassword(input.password, account.password))
         )
-          fail("계정 ID 또는 로그인 비밀번호가 일치하지 않습니다.", 401);
+          fail("이메일 또는 로그인 비밀번호가 일치하지 않습니다.", 401);
         await sql`DELETE FROM home_rate_limits WHERE key=${"login:" + hash(user)}`;
         await startSession(sql, req, res, account.id);
         return send(200, await overview(sql, account));
