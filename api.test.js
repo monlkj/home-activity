@@ -1,49 +1,624 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { createHandler } from './api/family.js';
-import { testDatabase } from './test-support/database.js';
-import { balance } from './public/model.js';
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { createHandler } from "./api/family.js";
+import { testDatabase } from "./test-support/database.js";
+import { balance } from "./public/model.js";
+import { passwordRecord } from "./lib/password.js";
+import { defaultState } from "./lib/defaults.js";
 
-test('server authenticates separate devices, shares family data, isolates families, and enforces roles',async()=>{
-  const {db,sql}=await testDatabase();
-  try{
-    const handler=createHandler(async()=>sql);
-    async function call(body,cookie='',origin='http://localhost'){
-      let status,result;const headers={};
-      const req={method:body?'POST':'GET',headers:{host:'localhost',origin,cookie},body,socket:{remoteAddress:'test-client'}};
-      const res={setHeader:(k,v)=>headers[k]=v,writeHead:s=>{status=s;},end:value=>{result=JSON.parse(value);}};
-      await handler(req,res);return {status,result,headers,cookie:headers['Set-Cookie']?.split(';')[0]??cookie};
+test("personal accounts, family invitations and separate approval passwords", async (t) => {
+  const { db, sql } = await testDatabase();
+  try {
+    const handler = createHandler(async () => sql);
+    async function call(
+      body,
+      cookie = "",
+      familyId = null,
+      origin = "http://localhost",
+    ) {
+      let status, result;
+      const headers = {};
+      const req = {
+        url: "/api/family" + (familyId ? "?familyId=" + familyId : ""),
+        method: body ? "POST" : "GET",
+        headers: { host: "localhost", origin, cookie },
+        body,
+        socket: { remoteAddress: "test-client" },
+      };
+      const res = {
+        setHeader: (key, value) => (headers[key] = value),
+        writeHead: (value) => {
+          status = value;
+        },
+        end: (value) => {
+          result = JSON.parse(value);
+        },
+      };
+      await handler(req, res);
+      return {
+        status,
+        result,
+        headers,
+        cookie: headers["Set-Cookie"]?.split(";")[0] ?? cookie,
+      };
     }
-    const first=await call({action:'register',code:'FAMILY11',name:'엄마',password:'parent-password'});
-    assert.equal(first.status,201);const parentCookie=first.cookie;const parentId=first.result.memberId;
-    assert.match(first.headers['Set-Cookie'],/HttpOnly/);assert.match(first.headers['Set-Cookie'],/SameSite=Strict/);
-    assert.equal(first.result.state.members[0].password,undefined);
-    assert.equal((await call({action:'register',code:'FAMILY11',name:'부모',password:'password'})).status,409);
-    const add=await call({action:'mutate',operation:'addMember',name:'민지',role:'child',emoji:'👧🏻',password:'child-password'},parentCookie);
-    assert.equal(add.status,200);const childId=add.result.state.members[1].id;
-    const lookup=await call({action:'lookup',code:' family11 '});assert.equal(lookup.result.members.length,2);assert.equal(lookup.result.state,undefined);assert.equal(lookup.result.members[0].password,undefined);
-    assert.equal((await call({action:'login',code:'FAMILY11',memberId:childId,password:'wrong'})).status,401);
-    const child=await call({action:'login',code:'FAMILY11',memberId:childId,password:'child-password'});assert.equal(child.status,200);const childCookie=child.cookie;
-    assert.equal((await call({action:'mutate',operation:'addMember',name:'위조',role:'parent',password:'password'},childCookie)).status,400);
-    assert.equal((await call({action:'mutate',operation:'setPassword',memberId:parentId,password:'password'},childCookie)).status,400);
-    const requested=await call({action:'mutate',operation:'requestActivity',activityId:'a1',memberId:parentId,points:999999},childCookie);assert.equal(requested.status,200);assert.equal(balance(requested.result.state,childId),0);const requestId=requested.result.state.requests[0].id;
-    assert.equal((await call({action:'mutate',operation:'reviewActivity',requestId,approve:true,actorId:parentId},childCookie)).status,400);
-    const parentRead=await call(null,parentCookie);assert.equal(parentRead.result.state.requests.length,1);
-    const [a,b]=await Promise.all([call({action:'mutate',operation:'reviewActivity',requestId,approve:true},parentCookie),call({action:'mutate',operation:'reviewActivity',requestId,approve:true},parentCookie)]);
-    assert.deepEqual([a.status,b.status].sort(),[200,400]);
-    const childRead=await call(null,childCookie);assert.equal(balance(childRead.result.state,childId),20);assert.equal(childRead.result.state.history.length,1);
-    assert.equal((await call({action:'mutate',operation:'redeem',rewardId:'r1',points:0},childCookie)).status,400);
-    const other=await call({action:'register',code:'FAMILY22',name:'다른 부모',password:'other-password'});assert.equal(other.status,201);assert.equal(other.result.state.members.length,1);
-    assert.equal((await call({action:'mutate',operation:'reviewActivity',requestId,approve:true},other.cookie)).status,400);
-    assert.equal((await call(null,'home_session=forged')).status,401);
-    assert.equal((await call({action:'mutate',operation:'requestActivity',activityId:'a2'},childCookie,'https://evil.example')).status,403);
-    const changed=await call({action:'mutate',operation:'setPassword',memberId:childId,password:'new-password'},parentCookie);assert.equal(changed.status,200);
-    assert.equal((await call(null,childCookie)).status,401);
-    assert.equal((await call({action:'login',code:'FAMILY11',memberId:childId,password:'child-password'})).status,401);
-    assert.equal((await call({action:'login',code:'FAMILY11',memberId:childId,password:'new-password'})).status,200);
-    await call({action:'logout'},parentCookie);assert.equal((await call(null,parentCookie)).status,401);
-    const stored=await db.query('SELECT state FROM home_families');assert.ok(!JSON.stringify(stored.rows).includes('parent-password'));
-    for(let i=0;i<11;i++)await call({action:'login',code:'FAMILY11',memberId:parentId,password:'wrong'});
-    assert.equal((await call({action:'login',code:'FAMILY11',memberId:parentId,password:'wrong'})).status,429);
-  }finally{await db.close();}
+    const mom = await call({
+        action: "registerAccount",
+        username: "mother",
+        name: "엄마",
+        password: "login-parent",
+      }),
+      child = await call({
+        action: "registerAccount",
+        username: "child1",
+        name: "민지",
+        password: "login-child",
+      }),
+      dad = await call({
+        action: "registerAccount",
+        username: "father",
+        name: "아빠",
+        password: "login-dad",
+      });
+    assert.equal(mom.status, 201);
+    assert.equal(child.status, 201);
+    assert.equal(dad.status, 201);
+    const ownerCookie = mom.cookie,
+      childCookie = child.cookie,
+      dadCookie = dad.cookie;
+    let familyId, childMemberId, requestId;
+    await t.test(
+      "signup precedes rooms and login never exposes password hashes",
+      async () => {
+        assert.equal(mom.result.families.length, 0);
+        assert.equal(mom.result.account.approvalConfigured, false);
+        assert.match(mom.headers["Set-Cookie"], /HttpOnly/);
+        assert.equal(mom.result.account.password, undefined);
+        assert.equal(
+          (
+            await call({
+              action: "registerAccount",
+              username: "MOTHER",
+              name: "다른 이름",
+              password: "login-password",
+            })
+          ).status,
+          409,
+        );
+        assert.equal(
+          (
+            await call({
+              action: "loginAccount",
+              username: "mother",
+              password: "wrong",
+            })
+          ).status,
+          401,
+        );
+        assert.equal(
+          (
+            await call({
+              action: "loginAccount",
+              username: "mother",
+              password: "login-parent",
+            })
+          ).status,
+          200,
+        );
+        assert.equal(
+          (await call({ action: "searchAccounts", query: "mother" })).status,
+          401,
+        );
+      },
+    );
+    await t.test(
+      "approval password is separate and cannot be reset with login password",
+      async () => {
+        assert.equal(
+          (
+            await call(
+              { action: "setApprovalPassword", password: "login-parent" },
+              ownerCookie,
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await call(
+              { action: "setApprovalPassword", password: "approve-parent" },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprovalPassword",
+                password: "new-approval",
+                currentApprovalPassword: "login-parent",
+              },
+              ownerCookie,
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprovalPassword",
+                password: "approve-new",
+                currentApprovalPassword: "approve-parent",
+              },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprovalPassword",
+                password: "approve-parent",
+                currentApprovalPassword: "approve-new",
+              },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+      },
+    );
+    await t.test(
+      "room owner searches accounts and invite requires approval password and recipient consent",
+      async () => {
+        const room = await call(
+          { action: "createRoom", name: "우리 가족" },
+          ownerCookie,
+        );
+        assert.equal(room.status, 201);
+        familyId = room.result.familyId;
+        assert.equal(room.result.isOwner, true);
+        assert.equal((await call(null, childCookie, familyId)).status, 403);
+        const search = await call(
+          { action: "searchAccounts", query: "child1" },
+          ownerCookie,
+        );
+        assert.equal(search.result.accounts[0].id, child.result.account.id);
+        assert.equal(search.result.accounts[0].password, undefined);
+        const input = {
+          action: "invite",
+          familyId,
+          accountId: child.result.account.id,
+          canApprove: false,
+        };
+        assert.equal(
+          (
+            await call(
+              { ...input, approvalPassword: "login-parent" },
+              ownerCookie,
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await call(
+              { ...input, approvalPassword: "approve-parent" },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await call(
+              { ...input, approvalPassword: "approve-parent" },
+              ownerCookie,
+            )
+          ).status,
+          409,
+        );
+        const invitations = (await call(null, childCookie)).result.invitations;
+        assert.equal(invitations.length, 1);
+        assert.equal(
+          (
+            await call(
+              {
+                action: "respondInvite",
+                invitationId: invitations[0].id,
+                accept: true,
+              },
+              dadCookie,
+            )
+          ).status,
+          404,
+        );
+        const joined = await call(
+          {
+            action: "respondInvite",
+            invitationId: invitations[0].id,
+            accept: true,
+          },
+          childCookie,
+        );
+        assert.equal(joined.status, 200);
+        childMemberId = joined.result.memberId;
+        assert.equal(
+          joined.result.state.members.find((m) => m.id === childMemberId).role,
+          "child",
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "respondInvite",
+                invitationId: invitations[0].id,
+                accept: true,
+              },
+              childCookie,
+            )
+          ).status,
+          404,
+        );
+      },
+    );
+    await t.test(
+      "shared parent login cannot approve without distinct approval password; concurrent approval credits once",
+      async () => {
+        const requested = await call(
+          {
+            action: "mutate",
+            familyId,
+            operation: "requestActivity",
+            activityId: "a1",
+            points: 999999,
+          },
+          childCookie,
+        );
+        assert.equal(requested.status, 200);
+        requestId = requested.result.state.requests[0].id;
+        assert.equal(balance(requested.result.state, childMemberId), 0);
+        const input = {
+          action: "mutate",
+          familyId,
+          operation: "reviewActivity",
+          requestId,
+          approve: true,
+        };
+        assert.equal(
+          (
+            await call(
+              { ...input, approvalPassword: "approve-parent" },
+              childCookie,
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await call(
+              { ...input, approvalPassword: "login-parent" },
+              ownerCookie,
+            )
+          ).status,
+          403,
+        );
+        const [a, b] = await Promise.all([
+          call({ ...input, approvalPassword: "approve-parent" }, ownerCookie),
+          call({ ...input, approvalPassword: "approve-parent" }, ownerCookie),
+        ]);
+        assert.deepEqual([a.status, b.status].sort(), [200, 400]);
+        const shared = await call(null, childCookie, familyId);
+        assert.equal(balance(shared.result.state, childMemberId), 20);
+        assert.equal(shared.result.state.history.length, 1);
+        assert.ok(shared.result.state.members.every((m) => !m.password));
+        assert.equal(
+          (
+            await call(
+              {
+                action: "mutate",
+                familyId,
+                operation: "setPassword",
+                memberId: mom.result.memberId,
+                password: "forged",
+              },
+              childCookie,
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "mutate",
+                familyId,
+                operation: "redeem",
+                rewardId: "r1",
+                points: 0,
+              },
+              childCookie,
+            )
+          ).status,
+          400,
+        );
+      },
+    );
+    await t.test(
+      "owner appoints approvers; appointees need their own approval password",
+      async () => {
+        await call(
+          {
+            action: "invite",
+            familyId,
+            accountId: dad.result.account.id,
+            canApprove: true,
+            approvalPassword: "approve-parent",
+          },
+          ownerCookie,
+        );
+        const invitation = (await call(null, dadCookie)).result.invitations[0];
+        const joined = await call(
+          {
+            action: "respondInvite",
+            invitationId: invitation.id,
+            accept: true,
+          },
+          dadCookie,
+        );
+        assert.equal(joined.status, 200);
+        const dadMemberId = joined.result.memberId;
+        assert.equal(
+          (
+            await call(
+              {
+                action: "mutate",
+                familyId,
+                operation: "addActivity",
+                title: "화분",
+                description: "물주기",
+                points: 10,
+                approvalPassword: "login-dad",
+              },
+              dadCookie,
+            )
+          ).status,
+          400,
+        );
+        await call(
+          { action: "setApprovalPassword", password: "approve-dad" },
+          dadCookie,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "mutate",
+                familyId,
+                operation: "addActivity",
+                title: "화분",
+                description: "물주기",
+                points: 10,
+                approvalPassword: "approve-dad",
+              },
+              dadCookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprover",
+                familyId,
+                memberId: childMemberId,
+                canApprove: true,
+                approvalPassword: "approve-dad",
+              },
+              dadCookie,
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprover",
+                familyId,
+                memberId: dadMemberId,
+                canApprove: false,
+                approvalPassword: "approve-parent",
+              },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "mutate",
+                familyId,
+                operation: "addActivity",
+                title: "위조",
+                description: "위조",
+                points: 10,
+                approvalPassword: "approve-dad",
+              },
+              dadCookie,
+            )
+          ).status,
+          400,
+        );
+        const other = await call(
+          { action: "createRoom", name: "다른 가족" },
+          childCookie,
+        );
+        assert.equal(
+          (await call(null, ownerCookie, other.result.familyId)).status,
+          403,
+        );
+      },
+    );
+    await t.test(
+      "existing families and ledger can be linked only after verifying old profile credentials",
+      async () => {
+        const id = randomUUID();
+        const old = defaultState();
+        old.members = [
+          {
+            id: "old-parent",
+            role: "parent",
+            name: "기존 부모",
+            emoji: "👩🏻",
+            password: await passwordRecord("legacy-parent"),
+          },
+          {
+            id: "old-child",
+            role: "child",
+            name: "기존 자녀",
+            emoji: "🧒🏻",
+            password: await passwordRecord("legacy-child"),
+          },
+        ];
+        old.history = [
+          {
+            id: randomUUID(),
+            memberId: "old-child",
+            points: 25,
+            title: "기존 활동",
+            date: new Date().toISOString(),
+          },
+        ];
+        await sql`INSERT INTO home_families(id,code,state) VALUES (${id},${"LEGACY42"},${JSON.stringify(old)}::jsonb)`;
+        assert.equal(
+          (
+            await call(
+              {
+                action: "claimLegacy",
+                code: "LEGACY42",
+                memberId: "old-child",
+                password: "legacy-child",
+              },
+              childCookie,
+            )
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "claimLegacy",
+                code: "LEGACY42",
+                memberId: "old-parent",
+                password: "wrong",
+              },
+              ownerCookie,
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "claimLegacy",
+                code: "LEGACY42",
+                memberId: "old-parent",
+                password: "legacy-parent",
+              },
+              ownerCookie,
+            )
+          ).status,
+          200,
+        );
+        const linked = await call(
+          {
+            action: "claimLegacy",
+            code: "LEGACY42",
+            memberId: "old-child",
+            password: "legacy-child",
+          },
+          childCookie,
+        );
+        assert.equal(linked.status, 200);
+        assert.equal(balance(linked.result.state, "old-child"), 25);
+        assert.equal(
+          (
+            await call(
+              {
+                action: "claimLegacy",
+                code: "LEGACY42",
+                memberId: "old-parent",
+                password: "legacy-parent",
+              },
+              dadCookie,
+            )
+          ).status,
+          400,
+        );
+      },
+    );
+    await t.test(
+      "forged sessions, cross-origin changes and brute force approval are rejected",
+      async () => {
+        assert.equal(
+          (await call(null, "home_account_session=forged")).status,
+          401,
+        );
+        assert.equal(
+          (
+            await call(
+              { action: "createRoom", name: "공격" },
+              ownerCookie,
+              null,
+              "https://evil.example",
+            )
+          ).status,
+          403,
+        );
+        for (let i = 0; i < 11; i++)
+          await call(
+            {
+              action: "setApprovalPassword",
+              currentApprovalPassword: "wrong",
+              password: "not-allowed",
+            },
+            ownerCookie,
+          );
+        assert.equal(
+          (
+            await call(
+              {
+                action: "setApprovalPassword",
+                currentApprovalPassword: "wrong",
+                password: "not-allowed",
+              },
+              ownerCookie,
+            )
+          ).status,
+          429,
+        );
+        await call({ action: "logout" }, ownerCookie);
+        assert.equal((await call(null, ownerCookie)).status, 401);
+        const accounts = await db.query(
+          "SELECT password,approval_password FROM home_accounts",
+        );
+        assert.ok(!JSON.stringify(accounts.rows).includes("approve-parent"));
+        assert.ok(!JSON.stringify(accounts.rows).includes("login-parent"));
+      },
+    );
+  } finally {
+    await db.close();
+  }
 });
