@@ -140,15 +140,18 @@ export function createHandler(getDatabase = database) {
           user = username(input.username),
           name = text(input.name, "이름"),
           password = await passwordRecord(input.password);
+        if (input.approvalPassword === input.password)
+          fail("승인 비밀번호는 로그인 비밀번호와 다르게 정해 주세요.");
+        const approvalPassword = await passwordRecord(input.approvalPassword);
         try {
-          await sql`INSERT INTO home_accounts(id,username,name,password) VALUES (${id},${user},${name},${JSON.stringify(password)}::jsonb)`;
+          await sql`INSERT INTO home_accounts(id,username,name,password,approval_password) VALUES (${id},${user},${name},${JSON.stringify(password)}::jsonb,${JSON.stringify(approvalPassword)}::jsonb)`;
         } catch (error) {
           if (error.code === "23505")
             fail("이미 사용 중인 이메일 또는 계정 ID입니다.", 409);
           throw error;
         }
         await startSession(sql, req, res, id);
-        return send(201, await overview(sql, { id, username: user, name }));
+        return send(201, await overview(sql, { id, username: user, name, approval_password: approvalPassword }));
       }
       if (input.action === "loginAccount") {
         const user = username(input.username);

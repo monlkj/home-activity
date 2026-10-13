@@ -378,7 +378,7 @@ function approvers() {
 }
 function loginScreen() {
   const screen = $("#login-screen");
-  screen.innerHTML = `<div class="login-card"><div class="login-icon">🏡</div><p class="eyebrow">HOME, SWEET HOME</p><h1>우리집 포인트</h1><p class="login-description">${registering ? "각자 계정을 만든 뒤 가족방 초대로 함께하세요." : "내 계정으로 로그인해 가족방에 들어오세요."}</p><form id="auth-form">${field("username", registering ? "이메일 주소" : "이메일 주소 (기존 계정 ID도 가능)", registering ? "email" : "text")}${registering ? field("name", "이름") : ""}${field("password", "로그인 비밀번호 (4자 이상)", "password")}${registering ? field("confirm", "로그인 비밀번호 확인", "password") : ""}<button class="primary" type="submit">${registering ? "회원가입" : "로그인"}</button></form><button class="text-button" id="toggle-auth">${registering ? "이미 계정이 있어요 · 로그인" : "처음이신가요? 개인 회원가입"}</button><p id="login-error" role="alert">${esc(connectionError)}</p><p class="login-local">로그인 비밀번호와 승인 비밀번호는 따로 사용합니다.<br>승인 비밀번호는 가입 후 내 계정에서 설정할 수 있어요.</p></div>`;
+  screen.innerHTML = `<div class="login-card"><div class="login-icon">🏡</div><p class="eyebrow">HOME, SWEET HOME</p><h1>우리집 포인트</h1><p class="login-description">${registering ? "각자 계정을 만든 뒤 가족방 초대로 함께하세요." : "내 계정으로 로그인해 가족방에 들어오세요."}</p><form id="auth-form">${field("username", registering ? "이메일 주소" : "이메일 주소 (기존 계정 ID도 가능)", registering ? "email" : "text")}${registering ? field("name", "이름") : ""}${field("password", "로그인 비밀번호 (4자 이상)", "password")}${registering ? field("confirm", "로그인 비밀번호 확인", "password") + field("approvalPassword", "개인 승인 비밀번호 (4자 이상)", "password") + field("approvalConfirm", "개인 승인 비밀번호 확인", "password") : ""}<button class="primary" type="submit">${registering ? "회원가입" : "로그인"}</button></form><button class="text-button" id="toggle-auth">${registering ? "이미 계정이 있어요 · 로그인" : "처음이신가요? 개인 회원가입"}</button><p id="login-error" role="alert">${esc(connectionError)}</p><p class="login-local">로그인 비밀번호와 승인 비밀번호는 따로 사용합니다.<br>개인 승인 비밀번호는 가입할 때 설정하고, 활동 승인 시 사용합니다.</p></div>`;
   $("#toggle-auth").onclick = () => {
     registering = !registering;
     connectionError = "";
@@ -392,12 +392,17 @@ function loginScreen() {
       const data = new FormData(e.target);
       if (registering && data.get("password") !== data.get("confirm"))
         throw Error("로그인 비밀번호 확인이 일치하지 않습니다.");
+      if (registering && data.get("approvalPassword") !== data.get("approvalConfirm"))
+        throw Error("개인 승인 비밀번호 확인이 일치하지 않습니다.");
+      if (registering && data.get("password") === data.get("approvalPassword"))
+        throw Error("승인 비밀번호는 로그인 비밀번호와 다르게 정해 주세요.");
       accept(
         await api({
           action: registering ? "registerAccount" : "loginAccount",
           username: data.get("username"),
           name: data.get("name"),
           password: data.get("password"),
+          approvalPassword: data.get("approvalPassword"),
         }),
       );
     } catch (error) {

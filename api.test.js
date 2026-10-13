@@ -17,6 +17,7 @@ test("personal accounts, family invitations and separate approval passwords", as
       familyId = null,
       origin = "http://localhost",
     ) {
+      if (body?.action === "registerAccount" && !("approvalPassword" in body)) body = {...body, approvalPassword: "initial-approval"};
       let status, result;
       const headers = {};
       const req = {
@@ -72,7 +73,7 @@ test("personal accounts, family invitations and separate approval passwords", as
       "signup precedes rooms and login never exposes password hashes",
       async () => {
         assert.equal(mom.result.families.length, 0);
-        assert.equal(mom.result.account.approvalConfigured, false);
+        assert.equal(mom.result.account.approvalConfigured, true);
         assert.match(mom.headers["Set-Cookie"], /HttpOnly/);
         assert.equal(mom.result.account.password, undefined);
         assert.equal(
@@ -120,13 +121,20 @@ test("personal accounts, family invitations and separate approval passwords", as
       assert.equal((await call({action:'registerAccount', username:'user@g.cnees.kr', name:'중복', password:'password'})).status, 409);
       assert.equal((await call({action:'registerAccount', username:'user@@example.com', name:'오류', password:'password'})).status, 400);
     });
+    await t.test("signup requires a distinct personal approval password", async () => {
+      assert.equal((await call({action:'registerAccount',username:'missing@example.com',name:'가입',password:'password',approvalPassword:undefined})).status,400);
+      assert.equal((await call({action:'registerAccount',username:'same@example.com',name:'가입',password:'password',approvalPassword:'password'})).status,400);
+      const records=await db.query('SELECT approval_password FROM home_accounts WHERE username=$1',['mother']);
+      assert.ok(records.rows[0].approval_password.hash);
+      assert.ok(!JSON.stringify(mom.result).includes('initial-approval'));
+    });
     await t.test(
       "approval password is separate and cannot be reset with login password",
       async () => {
         assert.equal(
           (
             await call(
-              { action: "setApprovalPassword", password: "login-parent" },
+              { action: "setApprovalPassword", password: "login-parent", currentApprovalPassword: "initial-approval" },
               ownerCookie,
             )
           ).status,
@@ -135,7 +143,7 @@ test("personal accounts, family invitations and separate approval passwords", as
         assert.equal(
           (
             await call(
-              { action: "setApprovalPassword", password: "approve-parent" },
+              { action: "setApprovalPassword", password: "approve-parent", currentApprovalPassword: "initial-approval" },
               ownerCookie,
             )
           ).status,
@@ -397,10 +405,10 @@ test("personal accounts, family invitations and separate approval passwords", as
               dadCookie,
             )
           ).status,
-          400,
+          403,
         );
         await call(
-          { action: "setApprovalPassword", password: "approve-dad" },
+          { action: "setApprovalPassword", password: "approve-dad", currentApprovalPassword: "initial-approval" },
           dadCookie,
         );
         assert.equal(
