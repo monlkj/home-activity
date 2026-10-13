@@ -551,6 +551,7 @@ document.addEventListener("click", (e) => {
   }
 });
 async function deleteAccountDialog() {
+  const currentUsername = account?.username;
   let challenge;
   try {
     challenge = await api({ action: "deleteChallenge" });
@@ -569,8 +570,9 @@ async function deleteAccountDialog() {
       )
       .join("");
   modal(
-    "계정 영구 삭제",
-    `<p class="notice">현재 로그인한 계정과 관계없이 아래 이메일의 계정을 삭제합니다. 계정 정보와 개인 포인트 내역은 복구할 수 없습니다. 다른 가족의 포인트는 유지됩니다.</p>` +
+    currentUsername ? "현재 로그인한 계정 삭제" : "계정 영구 삭제",
+    (currentUsername ? `<label for="deletion-target">삭제 대상</label><select id="deletion-target" name="deletionTarget"><option value="current">현재 로그인한 내 계정 삭제</option><option value="other">다른 계정 삭제</option></select>` : "") +
+      `<p id="deletion-description" class="notice">${currentUsername ? "현재 로그인한 내 계정을 삭제합니다. 삭제 후 자동으로 로그아웃됩니다." : "입력한 이메일의 계정을 삭제합니다."} 계정 정보와 개인 포인트 내역은 복구할 수 없습니다. 다른 가족의 포인트는 유지됩니다.</p>` +
       field(
         "username",
         "삭제할 계정 이메일 (기존 계정 ID도 가능)",
@@ -585,7 +587,7 @@ async function deleteAccountDialog() {
       try {
         const result = await api({
           action: "deleteAccount",
-          username: data.get("username"),
+          username: data.get("deletionTarget") === "current" ? currentUsername : data.get("username"),
           password: data.get("password"),
           approvalPassword: data.get("approvalPassword"),
           challenge: challenge.challenge,
@@ -635,6 +637,22 @@ async function deleteAccountDialog() {
     "계정 영구 삭제",
   );
   $("#form button[type=submit]").classList.add("danger");
+  if (currentUsername) {
+    const email = $('#form [name="username"]');
+    const target = $("#deletion-target");
+    email.readOnly = true;
+    $("#form button[type=submit]").textContent = "내 계정 영구 삭제";
+    target.onchange = () => {
+      const own = target.value === "current";
+      email.readOnly = own;
+      email.value = own ? currentUsername : "";
+      $("#dialog-title").textContent = own ? "현재 로그인한 계정 삭제" : "다른 계정 삭제";
+      $("#form button[type=submit]").textContent = own ? "내 계정 영구 삭제" : "입력한 계정 영구 삭제";
+      $("#deletion-description").textContent = own ? "현재 로그인한 내 계정을 삭제하고 자동으로 로그아웃합니다. 삭제된 계정과 개인 포인트 내역은 복구할 수 없습니다." : "입력한 이메일의 계정을 삭제합니다. 현재 로그인한 계정은 유지됩니다. 삭제된 계정과 개인 포인트 내역은 복구할 수 없습니다.";
+      for (const name of ["password", "approvalPassword", "answerOne", "answerTwo", "confirmation"]) $(`#form [name="${name}"]`).value = "";
+      $("#form-error").textContent = "";
+    };
+  }
 }
 async function logout() {
   try {
