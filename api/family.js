@@ -1,5 +1,5 @@
-import { normalizeIdentity } from '../lib/identity.js';
-import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { normalizeIdentity } from "../lib/identity.js";
+import { randomUUID, randomBytes, randomInt, createHash } from "node:crypto";
 import { database } from "../lib/database.js";
 import { defaultState } from "../lib/defaults.js";
 import {
@@ -134,6 +134,68 @@ export function createHandler(getDatabase = database) {
           "unknown",
       );
       await rateLimit(sql, "ip:" + hash(ip), 200);
+      if (input.action === "deleteChallenge") {
+        await rateLimit(sql, "delete-challenge:" + hash(ip), 40);
+        const operands = Array.from({ length: 4 }, () => randomInt(1, 10)),
+          token = randomBytes(32).toString("hex");
+        await sql`DELETE FROM home_delete_challenges WHERE expires_at<now()`;
+        await sql`INSERT INTO home_delete_challenges(token_hash,answer_one,answer_two,expires_at) VALUES (${hash(token)},${operands[0] + operands[1]},${operands[2] + operands[3]},now()+interval '10 minutes')`;
+        return send(200, {
+          challenge: token,
+          questions: [
+            `${operands[0]} + ${operands[1]}`,
+            `${operands[2]} + ${operands[3]}`,
+          ],
+        });
+      }
+      if (input.action === "deleteAccount") {
+        const user = username(input.username);
+        await rateLimit(sql, "delete-account:" + hash(user), 5);
+        if (!/^[a-f0-9]{64}$/.test(input.challenge ?? ""))
+          fail("삭제 확인 문제를 다시 받아 주세요.");
+        const challenges =
+          await sql`DELETE FROM home_delete_challenges WHERE token_hash=${hash(input.challenge)} AND expires_at>now() RETURNING answer_one,answer_two`;
+        const challenge = challenges[0];
+        if (!challenge)
+          fail(
+            "삭제 확인이 만료되었거나 이미 사용되었습니다. 다시 시도해 주세요.",
+          );
+        if (
+          input.confirmation !== "계정삭제" ||
+          !Number.isSafeInteger(input.answerOne) ||
+          !Number.isSafeInteger(input.answerTwo) ||
+          input.answerOne !== challenge.answer_one ||
+          input.answerTwo !== challenge.answer_two
+        )
+          fail("수학 문제 2개와 계정삭제 문구를 정확하게 입력해 주세요.");
+        const rows =
+          await sql`SELECT * FROM home_accounts WHERE username=${user}`;
+        const target = rows[0];
+        if (
+          !target ||
+          !(await verifyPassword(input.password, target.password)) ||
+          !target.approval_password ||
+          !(await verifyPassword(
+            input.approvalPassword,
+            target.approval_password,
+          ))
+        )
+          fail("이메일, 로그인 비밀번호, 승인 비밀번호를 확인해 주세요.", 403);
+        const token = cookie(req),
+          ownSessions =
+            await sql`SELECT account_id FROM home_account_sessions WHERE token_hash=${hash(token)}`;
+        try {
+          const deleted =
+            await sql`SELECT home_delete_account(${target.id}::uuid,${JSON.stringify(target.password)}::jsonb,${JSON.stringify(target.approval_password)}::jsonb) AS deleted`;
+          if (!deleted[0].deleted) fail("이미 삭제된 계정입니다.", 404);
+        } catch (error) {
+          if (error.code === "P0001") fail(error.message, 409);
+          throw error;
+        }
+        const signedOut = ownSessions[0]?.account_id === target.id;
+        if (signedOut) res.setHeader("Set-Cookie", cookieHeader(req, "", 0));
+        return send(200, { deleted: true, signedOut });
+      }
       if (input.action === "registerAccount") {
         await rateLimit(sql, "register:" + hash(ip), 10);
         const id = randomUUID(),
@@ -151,7 +213,15 @@ export function createHandler(getDatabase = database) {
           throw error;
         }
         await startSession(sql, req, res, id);
-        return send(201, await overview(sql, { id, username: user, name, approval_password: approvalPassword }));
+        return send(
+          201,
+          await overview(sql, {
+            id,
+            username: user,
+            name,
+            approval_password: approvalPassword,
+          }),
+        );
       }
       if (input.action === "loginAccount") {
         const user = username(input.username);

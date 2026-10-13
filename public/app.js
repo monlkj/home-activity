@@ -211,6 +211,7 @@ function modal(title, fields, onSubmit, button = "저장하기") {
   $("#fields").innerHTML = fields;
   $("#form-error").textContent = "";
   $("#form button[type=submit]").textContent = button;
+  $("#form button[type=submit]").className = "primary";
   $("#form").onsubmit = async (e) => {
     e.preventDefault();
     const submit = $("#form button[type=submit]");
@@ -227,7 +228,7 @@ function modal(title, fields, onSubmit, button = "저장하기") {
   $("#dialog").showModal();
 }
 const field = (name, label, type = "text", value = "") =>
-  `<label for="field-${name}">${label}</label><input id="field-${name}" name="${name}" type="${type}" required maxlength="${['username','query'].includes(name) ? 254 : 80}" ${type === "number" ? 'min="1" max="100000" step="1"' : ""} value="${esc(value)}">`;
+  `<label for="field-${name}">${label}</label><input id="field-${name}" name="${name}" type="${type}" required maxlength="${["username", "query"].includes(name) ? 254 : 80}" ${type === "number" ? 'min="1" max="100000" step="1"' : ""} value="${esc(value)}">`;
 function add(kind) {
   if (member()?.role !== "parent") {
     toast("승인 담당자만 관리할 수 있어요.");
@@ -378,7 +379,7 @@ function approvers() {
 }
 function loginScreen() {
   const screen = $("#login-screen");
-  screen.innerHTML = `<div class="login-card"><div class="login-icon">🏡</div><p class="eyebrow">HOME, SWEET HOME</p><h1>우리집 포인트</h1><p class="login-description">${registering ? "각자 계정을 만든 뒤 가족방 초대로 함께하세요." : "내 계정으로 로그인해 가족방에 들어오세요."}</p><form id="auth-form">${field("username", registering ? "이메일 주소" : "이메일 주소 (기존 계정 ID도 가능)", registering ? "email" : "text")}${registering ? field("name", "이름") : ""}${field("password", "로그인 비밀번호 (4자 이상)", "password")}${registering ? field("confirm", "로그인 비밀번호 확인", "password") + field("approvalPassword", "개인 승인 비밀번호 (4자 이상)", "password") + field("approvalConfirm", "개인 승인 비밀번호 확인", "password") : ""}<button class="primary" type="submit">${registering ? "회원가입" : "로그인"}</button></form><button class="text-button" id="toggle-auth">${registering ? "이미 계정이 있어요 · 로그인" : "처음이신가요? 개인 회원가입"}</button><p id="login-error" role="alert">${esc(connectionError)}</p><p class="login-local">로그인 비밀번호와 승인 비밀번호는 따로 사용합니다.<br>개인 승인 비밀번호는 가입할 때 설정하고, 활동 승인 시 사용합니다.</p></div>`;
+  screen.innerHTML = `<div class="login-card"><div class="login-icon">🏡</div><p class="eyebrow">HOME, SWEET HOME</p><h1>우리집 포인트</h1><p class="login-description">${registering ? "각자 계정을 만든 뒤 가족방 초대로 함께하세요." : "내 계정으로 로그인해 가족방에 들어오세요."}</p><form id="auth-form">${field("username", registering ? "이메일 주소" : "이메일 주소 (기존 계정 ID도 가능)", registering ? "email" : "text")}${registering ? field("name", "이름") : ""}${field("password", "로그인 비밀번호 (4자 이상)", "password")}${registering ? field("confirm", "로그인 비밀번호 확인", "password") + field("approvalPassword", "개인 승인 비밀번호 (4자 이상)", "password") + field("approvalConfirm", "개인 승인 비밀번호 확인", "password") : ""}<button class="primary" type="submit">${registering ? "회원가입" : "로그인"}</button></form><button class="text-button" id="toggle-auth">${registering ? "이미 계정이 있어요 · 로그인" : "처음이신가요? 개인 회원가입"}</button><button class="text-button danger-text" data-delete-account="true">계정 삭제</button><p id="login-error" role="alert">${esc(connectionError)}</p><p class="login-local">로그인 비밀번호와 승인 비밀번호는 따로 사용합니다.<br>개인 승인 비밀번호는 가입할 때 설정하고, 활동 승인 시 사용합니다.</p></div>`;
   $("#toggle-auth").onclick = () => {
     registering = !registering;
     connectionError = "";
@@ -392,7 +393,10 @@ function loginScreen() {
       const data = new FormData(e.target);
       if (registering && data.get("password") !== data.get("confirm"))
         throw Error("로그인 비밀번호 확인이 일치하지 않습니다.");
-      if (registering && data.get("approvalPassword") !== data.get("approvalConfirm"))
+      if (
+        registering &&
+        data.get("approvalPassword") !== data.get("approvalConfirm")
+      )
         throw Error("개인 승인 비밀번호 확인이 일치하지 않습니다.");
       if (registering && data.get("password") === data.get("approvalPassword"))
         throw Error("승인 비밀번호는 로그인 비밀번호와 다르게 정해 주세요.");
@@ -414,7 +418,7 @@ function loginScreen() {
 }
 function lobbyScreen() {
   const screen = $("#login-screen");
-  screen.innerHTML = `<div class="login-card lobby-card"><div class="login-icon">🏡</div><h1>${esc(account.name)}님의 가족 공간</h1><p class="login-description">@${esc(account.username)} · 내 계정으로 가족방에 참여해요.</p><div class="lobby-actions"><button class="text-button" data-settings="true">${account.approvalConfigured ? "승인 비밀번호 변경" : "승인 비밀번호 설정"}</button><button class="text-button" data-logout="true">로그아웃</button></div><div class="section-head"><h2>내 가족방</h2><button class="primary" data-create-room="true">＋ 가족방 만들기</button></div><div class="room-list">${families.length ? families.map((f) => `<button class="room-button" data-room="${esc(f.id)}">🏡 ${esc(f.name)} <span>들어가기 →</span></button>`).join("") : '<p class="empty">아직 가족방이 없어요. 가족방을 만들거나 다른 가족의 초대를 기다려 주세요.</p>'}</div><div class="section-head"><h2>받은 초대</h2></div>${invitations.length ? invitations.map((i) => `<div class="invitation"><strong>${esc(i.room_name)}</strong><p>${esc(i.inviter_name)}님의 초대 · ${i.can_approve ? "승인 담당" : "활동 참여"}</p><button class="primary" data-respond="${esc(i.id)}" data-accept="true">수락</button><button class="text-button" data-respond="${esc(i.id)}" data-accept="false">거절</button></div>`).join("") : '<p class="notice">받은 초대가 없어요.</p>'}<button class="text-button" data-legacy="true">이전 가족 코드로 등록한 프로필 연결하기</button></div>`;
+  screen.innerHTML = `<div class="login-card lobby-card"><div class="login-icon">🏡</div><h1>${esc(account.name)}님의 가족 공간</h1><p class="login-description">@${esc(account.username)} · 내 계정으로 가족방에 참여해요.</p><div class="lobby-actions"><button class="text-button" data-settings="true">${account.approvalConfigured ? "승인 비밀번호 변경" : "승인 비밀번호 설정"}</button><div><button class="text-button" data-logout="true">로그아웃</button><button class="text-button danger-text" data-delete-account="true">계정 삭제</button></div></div><div class="section-head"><h2>내 가족방</h2><button class="primary" data-create-room="true">＋ 가족방 만들기</button></div><div class="room-list">${families.length ? families.map((f) => `<button class="room-button" data-room="${esc(f.id)}">🏡 ${esc(f.name)} <span>들어가기 →</span></button>`).join("") : '<p class="empty">아직 가족방이 없어요. 가족방을 만들거나 다른 가족의 초대를 기다려 주세요.</p>'}</div><div class="section-head"><h2>받은 초대</h2></div>${invitations.length ? invitations.map((i) => `<div class="invitation"><strong>${esc(i.room_name)}</strong><p>${esc(i.inviter_name)}님의 초대 · ${i.can_approve ? "승인 담당" : "활동 참여"}</p><button class="primary" data-respond="${esc(i.id)}" data-accept="true">수락</button><button class="text-button" data-respond="${esc(i.id)}" data-accept="false">거절</button></div>`).join("") : '<p class="notice">받은 초대가 없어요.</p>'}<button class="text-button" data-legacy="true">이전 가족 코드로 등록한 프로필 연결하기</button></div>`;
 }
 function legacyLink() {
   modal(
@@ -470,6 +474,7 @@ document.addEventListener("click", (e) => {
   if (b.dataset.createRoom) createRoom();
   if (b.dataset.legacy) legacyLink();
   if (b.dataset.logout) logout();
+  if (b.dataset.deleteAccount) deleteAccountDialog();
   if (b.dataset.room) openRoom(b.dataset.room);
   if (b.dataset.respond) {
     b.disabled = true;
@@ -545,6 +550,92 @@ document.addEventListener("click", (e) => {
     );
   }
 });
+async function deleteAccountDialog() {
+  let challenge;
+  try {
+    challenge = await api({ action: "deleteChallenge" });
+  } catch (error) {
+    toast(error.message);
+    return;
+  }
+  const questions = () =>
+    challenge.questions
+      .map((question, i) =>
+        field(
+          i === 0 ? "answerOne" : "answerTwo",
+          `수학 문제 ${i + 1}: ${question} = ?`,
+          "number",
+        ),
+      )
+      .join("");
+  modal(
+    "계정 영구 삭제",
+    `<p class="notice">현재 로그인한 계정과 관계없이 아래 이메일의 계정을 삭제합니다. 계정 정보와 개인 포인트 내역은 복구할 수 없습니다. 다른 가족의 포인트는 유지됩니다.</p>` +
+      field(
+        "username",
+        "삭제할 계정 이메일 (기존 계정 ID도 가능)",
+        "text",
+        account?.username ?? "",
+      ) +
+      field("password", "삭제할 계정 로그인 비밀번호", "password") +
+      field("approvalPassword", "삭제할 계정 개인 승인 비밀번호", "password") +
+      `<div id="delete-questions">${questions()}</div>` +
+      field("confirmation", "확인 문구: 계정삭제"),
+    async (data) => {
+      try {
+        const result = await api({
+          action: "deleteAccount",
+          username: data.get("username"),
+          password: data.get("password"),
+          approvalPassword: data.get("approvalPassword"),
+          challenge: challenge.challenge,
+          answerOne: Number(data.get("answerOne")),
+          answerTwo: Number(data.get("answerTwo")),
+          confirmation: data.get("confirmation"),
+        });
+        if (result.signedOut || !account) {
+          account = null;
+          selected = null;
+          currentFamilyId = null;
+          families = [];
+          invitations = [];
+          state = {
+            members: [],
+            activities: [],
+            rewards: [],
+            history: [],
+            requests: [],
+          };
+          booting = false;
+          registering = false;
+          render();
+        } else {
+          try {
+            accept(await api(undefined, null));
+          } catch {
+            account = null;
+            selected = null;
+            render();
+          }
+        }
+        toast("입력한 이메일의 계정이 삭제되었습니다.");
+        return true;
+      } catch (error) {
+        try {
+          challenge = await api({ action: "deleteChallenge" });
+          $("#delete-questions").innerHTML = questions();
+        } catch {
+          challenge = { challenge: "", questions: [] };
+          $("#delete-questions").textContent =
+            "삭제 확인을 다시 시작해 주세요.";
+        }
+        throw error;
+      }
+    },
+    "계정 영구 삭제",
+  );
+  $("#form button[type=submit]").classList.add("danger");
+}
 async function logout() {
   try {
     await api({ action: "logout" });
@@ -577,6 +668,7 @@ async function openRoom(id) {
   }
 }
 $("#logout").onclick = logout;
+$("#delete-account").onclick = deleteAccountDialog;
 $("#account-settings").onclick = approvalSettings;
 $("#family-lobby").onclick = async () => {
   try {
